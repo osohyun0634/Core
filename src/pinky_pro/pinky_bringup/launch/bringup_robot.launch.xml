@@ -1,0 +1,29 @@
+<?xml version='1.0' ?>
+
+<launch>
+    <arg name="use_sim_time" default="False"/> 
+    <arg name="wheel_radius" default="0.027"/>
+    <arg name="wheel_separation" default="0.0961"/>
+
+    <include file="$(find-pkg-share pinky_description)/launch/upload_robot.launch.py">
+        <arg name="use_sim_time" value="$(var use_sim_time)"/>
+    </include>
+
+    <include file="$(find-pkg-share sllidar_ros2)/launch/sllidar_c1_launch.py">
+        <arg name="serial_port" value="/dev/ttyS0"/>
+        <arg name="frame_id" value="rplidar_link"/>
+        <arg name="inverted" value="false"/>
+        <arg name="angle_compensate" value="true"/>
+        <arg name="scan_mode" value="DenseBoost"/>
+    </include>
+
+    <node pkg="pinky_bringup" exec="bringup">
+        <param from="$(find-pkg-share pinky_bringup)/config/pinky_params.yaml"/>
+        <param name="wheel_radius" value="$(var wheel_radius)"/>
+        <param name="wheel_separation" value="$(var wheel_separation)"/>
+    </node>
+    
+    <node pkg="pinky_bringup" exec="battery_publisher">
+    </node>
+    
+</launch>
