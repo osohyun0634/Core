@@ -1,4 +1,4 @@
-[최초 1회만 — 집 노트북이든 라즈베리파이든 처음 받을 때]
+[최초 1회만 — 노트북이든 라즈베리파이든 처음 받을 때]
 
 git clone https://github.com/osohyun0634/Core.git
 cd Core
