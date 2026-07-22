@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSReliabilityPolicy
 import rclpy
 from rclpy.node import Node
@@ -10,7 +11,7 @@ import math
 
 class GoalPID(Node):
     def __init__(self):
-        super().__init__('goal_pd')
+        super().__init__('rpt_pd')
 
         qos = QoSProfile(depth=10)
         qos.reliability = QoSReliabilityPolicy.RELIABLE
@@ -50,12 +51,34 @@ class GoalPID(Node):
             (1.469, 0.495, -1.572, 'MOVE_BACKWARD'),
             (1.471, 0.503, 3.138, 'ROTATE'),
             (1.095, 0.500, 3.138, 'MOVE_FORWARD'),
+            (1.095, 0.500, 3.138, 'WAIT', 5.0),
+            
             (0.792, 0.454, -2.831, 'MOVE_DIAGONAL'),
-            (0.294, 0.454, 3.138, 'MOVE_FORWARD'),
+            (0.297, 0.454, 3.138, 'MOVE_FORWARD'),
+            (0.297, 0.454, 3.138, 'WAIT', 5.0),
+            
+            (0.152, 0.454, 3.138, 'MOVE_FORWARD'),
+            (0.130, 0.444, -1.570, 'ROTATE'),
+            (0.130, 0.035, -1.570, 'MOVE_FORWARD'),
+            (0.152, 0.022, -0.003, 'ROTATE'),
+            (0.788, 0.035, -0.003, 'MOVE_FORWARD'),
+            
+            (1.081, 0.293, 0.652, 'MOVE_DIAGONAL'),
+            (1.321, 0.097, -0.658, 'MOVE_DIAGONAL'),
+            
+            (1.329, 0.056, 3.138, 'ROTATE'),
+            (1.572, 0.057, 3.138,'MOVE_BACKWARD'),
         ]
 
         self.current_index = 0
         self.state = 'ROTATE'
+
+        # 루프 모드: 정방향 웨이포인트 끝까지 가면 자동으로 시작점까지 복귀 후 재시작.
+        # PD 게인 튜닝할 때 노드 재시작 없이 계속 왕복시키려고 추가.
+        self.declare_parameter('loop_mode', True)
+        self.loop_mode = self.get_parameter('loop_mode').value
+        self.phase = 'FORWARD'  # 'FORWARD' 또는 'RETURN'
+        self.return_waypoints = self._build_return_waypoints()
 
         self.declare_parameter('kp_angle', 0.6)
         self.declare_parameter('kp_dist', 0.3)
@@ -108,6 +131,9 @@ class GoalPID(Node):
         # -> 오버슈트 판정(투영값 부호)에 사용
         self.diag_heading_vec = None
 
+        # WAIT 상태 전용: 대기 시작 시각. None이면 아직 대기 시작 전.
+        self.wait_start_time = None
+
         self.timer = self.create_timer(0.05, self.control_loop)
 
     def parameter_callback(self, params):
@@ -142,6 +168,8 @@ class GoalPID(Node):
                 self.kp_angle_diagonal = param.value
             elif param.name == 'max_ang_diagonal':
                 self.max_ang_diagonal = param.value
+            elif param.name == 'loop_mode':
+                self.loop_mode = param.value
             self.get_logger().info(f'{param.name} 변경: {param.value}')
         return SetParametersResult(successful=True)
 
@@ -156,16 +184,71 @@ class GoalPID(Node):
         self.current_lin_vel = msg.twist.twist.linear.x
         self.current_ang_vel = msg.twist.twist.angular.z
 
+    def is_wait_condition_met(self, elapsed_sec, wait_seconds):
+        # 지금은 고정 시간 대기. 나중에 Jetcobot 완료 신호로 바꿀 때는
+        # 이 함수 안만 아래처럼 교체하면 됨 (구독 콜백에서 플래그 세팅 후 여기서 확인):
+        #   return self.arm_done_flag
+        return elapsed_sec >= wait_seconds
+
+    def _build_return_waypoints(self):
+        # 정방향 웨이포인트들의 (x, y)만 순서대로 뽑아서 연속 중복 좌표를 제거하고
+        # (WAIT처럼 같은 자리를 두 번 찍는 경우 대비), 역순으로 되짚어가는
+        # MOVE_DIAGONAL 시퀀스를 만든다. MOVE_DIAGONAL은 헤딩을 실시간 계산하므로
+        # 원래 move_type이 뭐였든 신경 쓸 필요 없이 점만 순서대로 찍어주면 된다.
+        coords = []
+        for wp in self.waypoints:
+            x, y = wp[0], wp[1]
+            if not coords or abs(coords[-1][0] - x) > 1e-6 or abs(coords[-1][1] - y) > 1e-6:
+                coords.append((x, y))
+
+        if len(coords) < 2:
+            return []
+
+        reversed_coords = list(reversed(coords))[1:]  # 현재 끝점 자신은 제외
+        return [(x, y, 0.0, 'MOVE_DIAGONAL') for x, y in reversed_coords]
+
     def control_loop(self):
         if self.current_x is None:
             return
 
-        if self.current_index >= len(self.waypoints):
+        active_waypoints = self.waypoints if self.phase == 'FORWARD' else self.return_waypoints
+
+        if self.current_index >= len(active_waypoints):
+            if self.loop_mode and len(self.return_waypoints) > 0:
+                if self.phase == 'FORWARD':
+                    self.get_logger().info('정방향 웨이포인트 완료 -> 복귀 시작')
+                    self.phase = 'RETURN'
+                else:
+                    self.get_logger().info('복귀 완료 -> 루프 재시작')
+                    self.phase = 'FORWARD'
+                self.current_index = 0
+                self.state = 'ROTATE'
+                self.pub.publish(Twist())
+                return
             self.pub.publish(Twist())
             return
 
-        goal_x, goal_y, goal_yaw, move_type = self.waypoints[self.current_index]
+        waypoint = active_waypoints[self.current_index]
+        goal_x, goal_y, goal_yaw, move_type = waypoint[0], waypoint[1], waypoint[2], waypoint[3]
+        wait_seconds = waypoint[4] if len(waypoint) > 4 else 0.0
         cmd = Twist()
+
+        if move_type == 'WAIT':
+            self.pub.publish(Twist())  # 정지 유지
+
+            if self.wait_start_time is None:
+                self.wait_start_time = self.get_clock().now()
+                self.get_logger().info(
+                    f'웨이포인트 {self.current_index} WAIT 시작 ({wait_seconds:.1f}초)')
+
+            elapsed = (self.get_clock().now() - self.wait_start_time).nanoseconds / 1e9
+
+            if self.is_wait_condition_met(elapsed, wait_seconds):
+                self.get_logger().info(f'웨이포인트 {self.current_index} WAIT 종료, 이동 재개')
+                self.current_index += 1
+                self.state = 'ROTATE'
+                self.wait_start_time = None
+            return
 
         is_move_waypoint = move_type in ('MOVE_FORWARD', 'MOVE_BACKWARD', 'MOVE_DIAGONAL')
 
