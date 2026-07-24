@@ -40,7 +40,7 @@ amcl:
     set_initial_pose: true
     initial_pose:
       x: 1.5425
-      y: 0.1210
+      y: 0.0810
       z: 0.0
       yaw: -3.138
 
@@ -84,7 +84,7 @@ controller_server:
       stateful: true                         # 플러그인이 이전 상태를 기억할지 여부
 
       # 기본 주행 및 속도
-      desired_linear_vel: 0.2                # [m/s] 목표 기본 직진 속도
+      desired_linear_vel: 0.12                # [m/s] 목표 기본 직진 속도
       allow_reversing: false                 # 후진 허용 여부 (false: 무조건 전진/제자리 회전으로 해결)
       max_angular_accel: 3.2                 # [rad/s^2] 최대 각가속도 (회전할 때 얼마나 빨리 가속할지)
 
@@ -100,7 +100,7 @@ controller_server:
       # 제자리 회전 (고개 먼저 돌리기)
       use_rotate_to_heading: true            # 경로 방향과 로봇 헤딩이 다를 때 제자리 회전 먼저 하기
       rotate_to_heading_min_angle: 0.35      # [rad] 약 20도 이상 차이나면 제자리 회전 모드 진입
-      rotate_to_heading_angular_vel: 1.0     # [rad/s] 제자리 회전할 때의 회전 속도
+      rotate_to_heading_angular_vel: 0.8     # [rad/s] 제자리 회전할 때의 회전 속도
 
       # 커브길 감속 (Regulated)
       use_regulated_linear_velocity_scaling: false  # 급커브에서 속도 줄이기
@@ -114,8 +114,8 @@ controller_server:
       inflation_cost_scaling_factor: 3.0     # 컨트롤러 내부에서 비용을 계산할 때 쓰는 인플레이션 가중치
 
       # 목적지 접근 시 감속
-      approach_velocity_scaling_dist: 0.6    # [m] 목표 지점까지 이 거리만큼 남았을 때부터 서서히 감속
-      min_approach_linear_velocity: 0.05     # [m/s] 목표 지점 근처에서 속도를 줄이더라도 이 속도 밑으론 안 내림
+      approach_velocity_scaling_dist: 0.5    # [m] 목표 지점까지 이 거리만큼 남았을 때부터 서서히 감속
+      min_approach_linear_velocity: 0.04     # [m/s] 목표 지점 근처에서 속도를 줄이더라도 이 속도 밑으론 안 내림
 
       # 안전 및 충돌 방지
       use_collision_detection: true          # 현재 위치부터 주시점(Lookahead)까지 충돌 여부 미리 검사
@@ -159,8 +159,8 @@ controller_server:
     general_goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
       stateful: true
-      xy_goal_tolerance: 0.25                    # [m] 목표 지점 반경 0.25m 안에 들어오면 도착 인정
-      yaw_goal_tolerance: 0.25                   # [rad] 목표 각도 오차 약 14도 이내면 올바르게 본 것으로 인정
+      xy_goal_tolerance: 0.02                    # [m] 목표 지점 반경 0.01m 안에 들어오면 도착 인정
+      yaw_goal_tolerance: 3.15                   # [rad] 목표 각도 오차 약 14도 이내면 올바르게 본 것으로 인정
 
     # ==========================================================
     # 4. 주행 진척도 검사 (Progress Checker)
